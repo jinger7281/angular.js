@@ -1,5 +1,9 @@
 'use strict';
 
+/* exported $AnimateCssProvider */
+
+var ANIMATE_TIMER_KEY = '$$animateCss';
+
 /**
  * @ngdoc service
  * @name $animateCss
@@ -14,11 +18,11 @@
  * Note that only browsers that support CSS transitions and/or keyframe animations are capable of
  * rendering animations triggered via `$animateCss` (bad news for IE9 and lower).
  *
- * ## Usage
+ * ## General Use
  * Once again, `$animateCss` is designed to be used inside of a registered JavaScript animation that
  * is powered by ngAnimate. It is possible to use `$animateCss` directly inside of a directive, however,
  * any automatic control over cancelling animations and/or preventing animations from being run on
- * child elements will not be handled by Angular. For this to work as expected, please use `$animate` to
+ * child elements will not be handled by AngularJS. For this to work as expected, please use `$animate` to
  * trigger the animation and then setup a JavaScript animation that injects `$animateCss` to trigger
  * the CSS animation.
  *
@@ -165,7 +169,7 @@
  * ```
  *
  * To actually start the animation we need to run `animation.start()` which will then return a promise that we can hook into to detect when the animation ends.
- * If we choose not to run the animation then we MUST run `animation.end()` to perform a cleanup on the element (since some CSS classes and stlyes may have been
+ * If we choose not to run the animation then we MUST run `animation.end()` to perform a cleanup on the element (since some CSS classes and styles may have been
  * applied to the element during the preparation phase). Note that all other properties such as duration, delay, transitions and keyframes are just properties
  * and that changing them will not reconfigure the parameters of the animation.
  *
@@ -184,8 +188,10 @@
  *
  * * `event` - The DOM event (e.g. enter, leave, move). When used, a generated CSS class of `ng-EVENT` and `ng-EVENT-active` will be applied
  * to the element during the animation. Multiple events can be provided when spaces are used as a separator. (Note that this will not perform any DOM operation.)
+ * * `structural` - Indicates that the `ng-` prefix will be added to the event class. Setting to `false` or omitting will turn `ng-EVENT` and
+ * `ng-EVENT-active` in `EVENT` and `EVENT-active`. Unused if `event` is omitted.
  * * `easing` - The CSS easing value that will be applied to the transition or keyframe animation (or both).
- * * `transition` - The raw CSS transition style that will be used (e.g. `1s linear all`).
+ * * `transitionStyle` - The raw CSS transition style that will be used (e.g. `1s linear all`).
  * * `keyframeStyle` - The raw CSS keyframe animation style that will be used (e.g. `1s my_animation linear`).
  * * `from` - The starting CSS styles (a key/value object) that will be applied at the start of the animation.
  * * `to` - The ending CSS styles (a key/value object) that will be applied across the animation via a CSS transition.
@@ -200,8 +206,12 @@
  * * `stagger` - A numeric time value representing the delay between successively animated elements
  * ({@link ngAnimate#css-staggering-animations Click here to learn how CSS-based staggering works in ngAnimate.})
  * * `staggerIndex` - The numeric index representing the stagger item (e.g. a value of 5 is equal to the sixth item in the stagger; therefore when a
- * * `stagger` option value of `0.1` is used then there will be a stagger delay of `600ms`)
- * * `applyClassesEarly` - Whether or not the classes being added or removed will be used when detecting the animation. This is set by `$animate` when enter/leave/move animations are fired to ensure that the CSS classes are resolved in time. (Note that this will prevent any transitions from occuring on the classes being added and removed.)
+ *   `stagger` option value of `0.1` is used then there will be a stagger delay of `600ms`)
+ * * `applyClassesEarly` - Whether or not the classes being added or removed will be used when detecting the animation. This is set by `$animate` when enter/leave/move animations are fired to ensure that the CSS classes are resolved in time. (Note that this will prevent any transitions from occurring on the classes being added and removed.)
+ * * `cleanupStyles` - Whether or not the provided `from` and `to` styles will be removed once
+ *    the animation is closed. This is useful for when the styles are used purely for the sake of
+ *    the animation and do not have a lasting visual effect on the element (e.g. a collapse and open animation).
+ *    By default this value is set to `false`.
  *
  * @return {object} an object with start and end methods and details about the animation.
  *
@@ -209,7 +219,6 @@
  * * `end` - This method will cancel the animation and remove all applied CSS classes and styles.
  */
 var ONE_SECOND = 1000;
-var BASE_TEN = 10;
 
 var ELAPSED_TIME_MAX_DECIMAL_PLACES = 3;
 var CLOSING_TIME_BUFFER = 1.5;
@@ -253,7 +262,7 @@ function computeCssStyles($window, element, properties) {
       }
 
       // by setting this to null in the event that the delay is not set or is set directly as 0
-      // then we can still allow for zegative values to be used later on and not mistake this
+      // then we can still allow for negative values to be used later on and not mistake this
       // value for being greater than any other negative value.
       if (val === 0) {
         val = null;
@@ -271,7 +280,7 @@ function parseMaxTime(str) {
   forEach(values, function(value) {
     // it's always safe to consider only second values and omit `ms` values since
     // getComputedStyle will always handle the conversion for us
-    if (value.charAt(value.length - 1) == 's') {
+    if (value.charAt(value.length - 1) === 's') {
       value = value.substring(0, value.length - 1);
     }
     value = parseFloat(value) || 0;
@@ -295,52 +304,34 @@ function getCssTransitionDurationStyle(duration, applyOnlyDuration) {
   return [style, value];
 }
 
-function createLocalCacheLookup() {
-  var cache = Object.create(null);
-  return {
-    flush: function() {
-      cache = Object.create(null);
-    },
-
-    count: function(key) {
-      var entry = cache[key];
-      return entry ? entry.total : 0;
-    },
-
-    get: function(key) {
-      var entry = cache[key];
-      return entry && entry.value;
-    },
-
-    put: function(key, value) {
-      if (!cache[key]) {
-        cache[key] = { total: 1, value: value };
-      } else {
-        cache[key].total++;
-      }
-    }
-  };
+// we do not reassign an already present style value since
+// if we detect the style property value again we may be
+// detecting styles that were added via the `from` styles.
+// We make use of `isDefined` here since an empty string
+// or null value (which is what getPropertyValue will return
+// for a non-existing style) will still be marked as a valid
+// value for the style (a falsy value implies that the style
+// is to be removed at the end of the animation). If we had a simple
+// "OR" statement then it would not be enough to catch that.
+function registerRestorableStyles(backup, node, properties) {
+  forEach(properties, function(prop) {
+    backup[prop] = isDefined(backup[prop])
+        ? backup[prop]
+        : node.style.getPropertyValue(prop);
+  });
 }
 
-var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
-  var gcsLookup = createLocalCacheLookup();
-  var gcsStaggerLookup = createLocalCacheLookup();
+var $AnimateCssProvider = ['$animateProvider', /** @this */ function($animateProvider) {
 
-  this.$get = ['$window', '$$jqLite', '$$AnimateRunner', '$timeout', '$$forceReflow', '$sniffer', '$$rAF',
-       function($window,   $$jqLite,   $$AnimateRunner,   $timeout,   $$forceReflow,   $sniffer,   $$rAF) {
+  this.$get = ['$window', '$$jqLite', '$$AnimateRunner', '$timeout', '$$animateCache',
+               '$$forceReflow', '$sniffer', '$$rAFScheduler', '$$animateQueue',
+       function($window,   $$jqLite,   $$AnimateRunner,   $timeout,   $$animateCache,
+                $$forceReflow,   $sniffer,   $$rAFScheduler, $$animateQueue) {
 
     var applyAnimationClasses = applyAnimationClassesFactory($$jqLite);
 
-    var parentCounter = 0;
-    function gcsHashFn(node, extraClasses) {
-      var KEY = "$$ngAnimateParentKey";
-      var parentNode = node.parentNode;
-      var parentID = parentNode[KEY] || (parentNode[KEY] = ++parentCounter);
-      return parentID + '-' + node.getAttribute('class') + '-' + extraClasses;
-    }
-
-    function computeCachedCssStyles(node, className, cacheKey, properties) {
-      var timings = gcsLookup.get(cacheKey);
+    function computeCachedCssStyles(node, className, cacheKey, allowNoDuration, properties) {
+      var timings = $$animateCache.get(cacheKey);
 
       if (!timings) {
         timings = computeCssStyles($window, node, properties);
@@ -349,20 +340,26 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         }
       }
 
+      // if a css animation has no duration we
+      // should mark that so that repeated addClass/removeClass calls are skipped
+      var hasDuration = allowNoDuration || (timings.transitionDuration > 0 || timings.animationDuration > 0);
+
       // we keep putting this in multiple times even though the value and the cacheKey are the same
-      // because we're keeping an interal tally of how many duplicate animations are detected.
-      gcsLookup.put(cacheKey, timings);
+      // because we're keeping an internal tally of how many duplicate animations are detected.
+      $$animateCache.put(cacheKey, timings, hasDuration);
+
       return timings;
     }
 
     function computeCachedCssStaggerStyles(node, className, cacheKey, properties) {
       var stagger;
+      var staggerCacheKey = 'stagger-' + cacheKey;
 
       // if we have one or more existing matches of matching elements
       // containing the same parent + CSS styles (which is how cacheKey works)
       // then staggering is possible
-      if (gcsLookup.count(cacheKey) > 0) {
-        stagger = gcsStaggerLookup.get(cacheKey);
+      if ($$animateCache.count(cacheKey) > 0) {
+        stagger = $$animateCache.get(staggerCacheKey);
 
         if (!stagger) {
           var staggerClassName = pendClasses(className, '-stagger');
@@ -377,24 +374,18 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
 
           $$jqLite.removeClass(node, staggerClassName);
 
-          gcsStaggerLookup.put(cacheKey, stagger);
+          $$animateCache.put(staggerCacheKey, stagger, true);
         }
       }
 
       return stagger || {};
     }
 
-    var cancelLastRAFRequest;
     var rafWaitQueue = [];
     function waitUntilQuiet(callback) {
-      if (cancelLastRAFRequest) {
-        cancelLastRAFRequest(); //cancels the request
-      }
       rafWaitQueue.push(callback);
-      cancelLastRAFRequest = $$rAF(function() {
-        cancelLastRAFRequest = null;
-        gcsLookup.flush();
-        gcsStaggerLookup.flush();
+      $$rAFScheduler.waitUntilQuiet(function() {
+        $$animateCache.flush();
 
         // DO NOT REMOVE THIS LINE OR REFACTOR OUT THE `pageWidth` variable.
         // PLEASE EXAMINE THE `$$forceReflow` service to understand why.
@@ -409,10 +400,8 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       });
     }
 
-    return init;
-
-    function computeTimings(node, className, cacheKey) {
-      var timings = computeCachedCssStyles(node, className, cacheKey, DETECT_CSS_PROPERTIES);
+    function computeTimings(node, className, cacheKey, allowNoDuration) {
+      var timings = computeCachedCssStyles(node, className, cacheKey, allowNoDuration, DETECT_CSS_PROPERTIES);
       var aD = timings.animationDelay;
       var tD = timings.transitionDelay;
       timings.maxDelay = aD && tD
@@ -425,13 +414,23 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       return timings;
     }
 
-    function init(element, options) {
-      var node = getDomNode(element);
-      if (!node || !node.parentNode) {
-        return closeAndReturnNoopAnimator();
+    return function init(element, initialOptions) {
+      // all of the animation functions should create
+      // a copy of the options data, however, if a
+      // parent service has already created a copy then
+      // we should stick to using that
+      var options = initialOptions || {};
+      if (!options.$$prepared) {
+        options = prepareAnimationOptions(copy(options));
       }
 
-      options = prepareAnimationOptions(options);
+      var restoreStyles = {};
+      var node = getDomNode(element);
+      if (!node
+          || !node.parentNode
+          || !$$animateQueue.enabled()) {
+        return closeAndReturnNoopAnimator();
+      }
 
       var temporaryStyles = [];
       var classes = element.attr('class');
@@ -445,6 +444,8 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       var maxDelayTime;
       var maxDuration;
       var maxDurationTime;
+      var startTime;
+      var events = [];
 
       if (options.duration === 0 || (!$sniffer.animations && !$sniffer.transitions)) {
         return closeAndReturnNoopAnimator();
@@ -483,12 +484,10 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       // there actually is a detected transition or keyframe animation
       if (options.applyClassesEarly && addRemoveClassName.length) {
         applyAnimationClasses(element, options);
-        addRemoveClassName = '';
       }
 
       var preparationClasses = [structuralClassName, addRemoveClassName].join(' ').trim();
       var fullClassName = classes + ' ' + preparationClasses;
-      var activeClasses = pendClasses(preparationClasses, ACTIVE_CLASS_SUFFIX);
       var hasToStyles = styles.to && Object.keys(styles.to).length > 0;
       var containsKeyframeAnimation = (options.keyframeStyle || '').length > 0;
 
@@ -501,7 +500,12 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         return closeAndReturnNoopAnimator();
       }
 
-      var cacheKey, stagger;
+      var stagger, cacheKey = $$animateCache.cacheKey(node, method, options.addClass, options.removeClass);
+      if ($$animateCache.containsCachedAnimationWithoutDuration(cacheKey)) {
+        preparationClasses = null;
+        return closeAndReturnNoopAnimator();
+      }
+
       if (options.stagger > 0) {
         var staggerVal = parseFloat(options.stagger);
         stagger = {
@@ -511,7 +515,6 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
           animationDuration: 0
         };
       } else {
-        cacheKey = gcsHashFn(node, fullClassName);
         stagger = computeCachedCssStaggerStyles(node, preparationClasses, cacheKey, DETECT_STAGGER_CSS_PROPERTIES);
       }
 
@@ -545,7 +548,7 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       var itemIndex = stagger
           ? options.staggerIndex >= 0
               ? options.staggerIndex
-              : gcsLookup.count(cacheKey)
+              : $$animateCache.count(cacheKey)
           : 0;
 
       var isFirst = itemIndex === 0;
@@ -557,10 +560,10 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       // that if there is no transition defined then nothing will happen and this will also allow
       // other transitions to be stacked on top of each other without any chopping them out.
       if (isFirst && !options.skipBlocking) {
-        blockTransitions(node, SAFE_FAST_FORWARD_DURATION_VALUE);
+        helpers.blockTransitions(node, SAFE_FAST_FORWARD_DURATION_VALUE);
       }
 
-      var timings = computeTimings(node, fullClassName, cacheKey);
+      var timings = computeTimings(node, fullClassName, cacheKey, !isStructural);
       var relativeDelay = timings.maxDelay;
       maxDelay = Math.max(relativeDelay, 0);
       maxDuration = timings.maxDuration;
@@ -568,7 +571,7 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
       var flags = {};
       flags.hasTransitions          = timings.transitionDuration > 0;
       flags.hasAnimations           = timings.animationDuration > 0;
-      flags.hasTransitionAll        = flags.hasTransitions && timings.transitionProperty == 'all';
+      flags.hasTransitionAll        = flags.hasTransitions && timings.transitionProperty === 'all';
       flags.applyTransitionDuration = hasToStyles && (
                                         (flags.hasTransitions && !flags.hasTransitionAll)
                                          || (flags.hasAnimations && !flags.hasTransitions));
@@ -598,6 +601,25 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         return closeAndReturnNoopAnimator();
       }
 
+      var activeClasses = pendClasses(preparationClasses, ACTIVE_CLASS_SUFFIX);
+
+      if (options.delay != null) {
+        var delayStyle;
+        if (typeof options.delay !== 'boolean') {
+          delayStyle = parseFloat(options.delay);
+          // number in options.delay means we have to recalculate the delay for the closing timeout
+          maxDelay = Math.max(delayStyle, 0);
+        }
+
+        if (flags.applyTransitionDelay) {
+          temporaryStyles.push(getCssDelayStyle(delayStyle));
+        }
+
+        if (flags.applyAnimationDelay) {
+          temporaryStyles.push(getCssDelayStyle(delayStyle, true));
+        }
+      }
+
       // we need to recalculate the delay value since we used a pre-emptive negative
       // delay value and the delay value is required for the final event checking. This
       // property will ensure that this will happen after the RAF phase has passed.
@@ -614,12 +636,17 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
                                        stagger.animationDuration === 0;
       }
 
-      applyAnimationFromStyles(element, options);
+      if (options.from) {
+        if (options.cleanupStyles) {
+          registerRestorableStyles(restoreStyles, node, Object.keys(options.from));
+        }
+        applyAnimationFromStyles(element, options);
+      }
 
       if (flags.blockTransition || flags.blockKeyframeAnimation) {
         applyBlocking(maxDuration);
       } else if (!options.skipBlocking) {
-        blockTransitions(node, false);
+        helpers.blockTransitions(node, false);
       }
 
       // TODO(matsko): for 1.5 change this code to have an animator object for better debugging
@@ -656,20 +683,23 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         close(true);
       }
 
-      function close(rejected) { // jshint ignore:line
+      function close(rejected) {
         // if the promise has been called already then we shouldn't close
         // the animation again
         if (animationClosed || (animationCompleted && animationPaused)) return;
         animationClosed = true;
         animationPaused = false;
 
-        if (!options.$$skipPreparationClasses) {
+        if (preparationClasses && !options.$$skipPreparationClasses) {
           $$jqLite.removeClass(element, preparationClasses);
         }
-        $$jqLite.removeClass(element, activeClasses);
+
+        if (activeClasses) {
+          $$jqLite.removeClass(element, activeClasses);
+        }
 
         blockKeyframeAnimations(node, false);
-        blockTransitions(node, false);
+        helpers.blockTransitions(node, false);
 
         forEach(temporaryStyles, function(entry) {
           // There is only one way to remove inline style properties entirely from elements.
@@ -681,6 +711,16 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         applyAnimationClasses(element, options);
         applyAnimationStyles(element, options);
 
+        if (Object.keys(restoreStyles).length) {
+          forEach(restoreStyles, function(value, prop) {
+            if (value) {
+              node.style.setProperty(prop, value);
+            } else {
+              node.style.removeProperty(prop);
+            }
+          });
+        }
+
         // the reason why we have this option is to allow a synchronous closing callback
         // that is fired as SOON as the animation ends (when the CSS is removed) or if
         // the animation never takes off at all. A good example is a leave animation since
@@ -688,6 +728,18 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         // will appear on screen for one animation frame causing an overbearing flicker.
         if (options.onDone) {
           options.onDone();
+        }
+
+        if (events && events.length) {
+          // Remove the transitionend / animationend listener(s)
+          element.off(events.join(' '), onAnimationProgress);
+        }
+
+        //Cancel the fallback closing timeout and remove the timer data
+        var animationTimerData = element.data(ANIMATE_TIMER_KEY);
+        if (animationTimerData) {
+          $timeout.cancel(animationTimerData[0].timer);
+          element.removeData(ANIMATE_TIMER_KEY);
         }
 
         // if the preparation function fails then the promise is not setup
@@ -698,7 +750,7 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
 
       function applyBlocking(duration) {
         if (flags.blockTransition) {
-          blockTransitions(node, duration);
+          helpers.blockTransitions(node, duration);
         }
 
         if (flags.blockKeyframeAnimation) {
@@ -712,6 +764,8 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
           cancel: cancelFn
         });
 
+        // should flush the cache animation
+        waitUntilQuiet(noop);
         close();
 
         return {
@@ -723,14 +777,45 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
         };
       }
 
+      function onAnimationProgress(event) {
+        event.stopPropagation();
+        var ev = event.originalEvent || event;
+
+        if (ev.target !== node) {
+          // Since TransitionEvent / AnimationEvent bubble up,
+          // we have to ignore events by finished child animations
+          return;
+        }
+
+        // we now always use `Date.now()` due to the recent changes with
+        // event.timeStamp in Firefox, Webkit and Chrome (see #13494 for more info)
+        var timeStamp = ev.$manualTimeStamp || Date.now();
+
+        /* Firefox (or possibly just Gecko) likes to not round values up
+         * when a ms measurement is used for the animation */
+        var elapsedTime = parseFloat(ev.elapsedTime.toFixed(ELAPSED_TIME_MAX_DECIMAL_PLACES));
+
+        /* $manualTimeStamp is a mocked timeStamp value which is set
+         * within browserTrigger(). This is only here so that tests can
+         * mock animations properly. Real events fallback to event.timeStamp,
+         * or, if they don't, then a timeStamp is automatically created for them.
+         * We're checking to see if the timeStamp surpasses the expected delay,
+         * but we're using elapsedTime instead of the timeStamp on the 2nd
+         * pre-condition since animationPauseds sometimes close off early */
+        if (Math.max(timeStamp - startTime, 0) >= maxDelayTime && elapsedTime >= maxDuration) {
+          // we set this flag to ensure that if the transition is paused then, when resumed,
+          // the animation will automatically close itself since transitions cannot be paused.
+          animationCompleted = true;
+          close();
+        }
+      }
+
       function start() {
         if (animationClosed) return;
         if (!node.parentNode) {
           close();
           return;
         }
-
-        var startTime, events = [];
 
         // even though we only pause keyframe animations here the pause flag
         // will still happen when transitions are used. Only the transition will
@@ -741,9 +826,11 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
             animationPaused = !playAnimation;
             if (timings.animationDuration) {
               var value = blockKeyframeAnimations(node, animationPaused);
-              animationPaused
-                  ? temporaryStyles.push(value)
-                  : removeFromArray(temporaryStyles, value);
+              if (animationPaused) {
+                temporaryStyles.push(value);
+              } else {
+                removeFromArray(temporaryStyles, value);
+              }
             }
           } else if (animationPaused && playAnimation) {
             animationPaused = false;
@@ -751,9 +838,9 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
           }
         };
 
-        // checking the stagger duration prevents an accidently cascade of the CSS delay style
+        // checking the stagger duration prevents an accidentally cascade of the CSS delay style
         // being inherited from the parent. If the transition duration is zero then we can safely
-        // rely that the delay value is an intential stagger delay style.
+        // rely that the delay value is an intentional stagger delay style.
         var maxStagger = itemIndex > 0
                          && ((timings.transitionDuration && stagger.transitionDuration === 0) ||
                             (timings.animationDuration && stagger.animationDuration === 0))
@@ -792,10 +879,10 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
           $$jqLite.addClass(element, activeClasses);
 
           if (flags.recalculateTimingStyles) {
-            fullClassName = node.className + ' ' + preparationClasses;
-            cacheKey = gcsHashFn(node, fullClassName);
+            fullClassName = node.getAttribute('class') + ' ' + preparationClasses;
+            cacheKey = $$animateCache.cacheKey(node, method, options.addClass, options.removeClass);
 
-            timings = computeTimings(node, fullClassName, cacheKey);
+            timings = computeTimings(node, fullClassName, cacheKey, false);
             relativeDelay = timings.maxDelay;
             maxDelay = Math.max(relativeDelay, 0);
             maxDuration = timings.maxDuration;
@@ -809,27 +896,16 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
             flags.hasAnimations = timings.animationDuration > 0;
           }
 
-          if (flags.applyTransitionDelay || flags.applyAnimationDelay) {
-            relativeDelay = typeof options.delay !== "boolean" && truthyTimingValue(options.delay)
+          if (flags.applyAnimationDelay) {
+            relativeDelay = typeof options.delay !== 'boolean' && truthyTimingValue(options.delay)
                   ? parseFloat(options.delay)
                   : relativeDelay;
 
             maxDelay = Math.max(relativeDelay, 0);
-
-            var delayStyle;
-            if (flags.applyTransitionDelay) {
-              timings.transitionDelay = relativeDelay;
-              delayStyle = getCssDelayStyle(relativeDelay);
-              temporaryStyles.push(delayStyle);
-              node.style[delayStyle[0]] = delayStyle[1];
-            }
-
-            if (flags.applyAnimationDelay) {
-              timings.animationDelay = relativeDelay;
-              delayStyle = getCssDelayStyle(relativeDelay, true);
-              temporaryStyles.push(delayStyle);
-              node.style[delayStyle[0]] = delayStyle[1];
-            }
+            timings.animationDelay = relativeDelay;
+            delayStyle = getCssDelayStyle(relativeDelay, true);
+            temporaryStyles.push(delayStyle);
+            node.style[delayStyle[0]] = delayStyle[1];
           }
 
           maxDelayTime = maxDelay * ONE_SECOND;
@@ -858,43 +934,57 @@ var $AnimateCssProvider = ['$animateProvider', function($animateProvider) {
           }
 
           startTime = Date.now();
-          element.on(events.join(' '), onAnimationProgress);
-          $timeout(onAnimationExpired, maxDelayTime + CLOSING_TIME_BUFFER * maxDurationTime, false);
+          var timerTime = maxDelayTime + CLOSING_TIME_BUFFER * maxDurationTime;
+          var endTime = startTime + timerTime;
 
-          applyAnimationToStyles(element, options);
+          var animationsData = element.data(ANIMATE_TIMER_KEY) || [];
+          var setupFallbackTimer = true;
+          if (animationsData.length) {
+            var currentTimerData = animationsData[0];
+            setupFallbackTimer = endTime > currentTimerData.expectedEndTime;
+            if (setupFallbackTimer) {
+              $timeout.cancel(currentTimerData.timer);
+            } else {
+              animationsData.push(close);
+            }
+          }
+
+          if (setupFallbackTimer) {
+            var timer = $timeout(onAnimationExpired, timerTime, false);
+            animationsData[0] = {
+              timer: timer,
+              expectedEndTime: endTime
+            };
+            animationsData.push(close);
+            element.data(ANIMATE_TIMER_KEY, animationsData);
+          }
+
+          if (events.length) {
+            element.on(events.join(' '), onAnimationProgress);
+          }
+
+          if (options.to) {
+            if (options.cleanupStyles) {
+              registerRestorableStyles(restoreStyles, node, Object.keys(options.to));
+            }
+            applyAnimationToStyles(element, options);
+          }
         }
 
         function onAnimationExpired() {
-          // although an expired animation is a failed animation, getting to
-          // this outcome is very easy if the CSS code screws up. Therefore we
-          // should still continue normally as if the animation completed correctly.
-          close();
-        }
+          var animationsData = element.data(ANIMATE_TIMER_KEY);
 
-        function onAnimationProgress(event) {
-          event.stopPropagation();
-          var ev = event.originalEvent || event;
-          var timeStamp = ev.$manualTimeStamp || ev.timeStamp || Date.now();
-
-          /* Firefox (or possibly just Gecko) likes to not round values up
-           * when a ms measurement is used for the animation */
-          var elapsedTime = parseFloat(ev.elapsedTime.toFixed(ELAPSED_TIME_MAX_DECIMAL_PLACES));
-
-          /* $manualTimeStamp is a mocked timeStamp value which is set
-           * within browserTrigger(). This is only here so that tests can
-           * mock animations properly. Real events fallback to event.timeStamp,
-           * or, if they don't, then a timeStamp is automatically created for them.
-           * We're checking to see if the timeStamp surpasses the expected delay,
-           * but we're using elapsedTime instead of the timeStamp on the 2nd
-           * pre-condition since animations sometimes close off early */
-          if (Math.max(timeStamp - startTime, 0) >= maxDelayTime && elapsedTime >= maxDuration) {
-            // we set this flag to ensure that if the transition is paused then, when resumed,
-            // the animation will automatically close itself since transitions cannot be paused.
-            animationCompleted = true;
-            close();
+          // this will be false in the event that the element was
+          // removed from the DOM (via a leave animation or something
+          // similar)
+          if (animationsData) {
+            for (var i = 1; i < animationsData.length; i++) {
+              animationsData[i]();
+            }
+            element.removeData(ANIMATE_TIMER_KEY);
           }
         }
       }
-    }
+    };
   }];
 }];
