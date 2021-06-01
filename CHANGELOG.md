@@ -1,3 +1,112 @@
+<a name="1.8.2"></a>
+# 1.8.2 meteoric-mining (2020-10-21)
+
+## Bug Fixes
+- **$sceDelegate:** ensure that `resourceUrlWhitelist()` is identical to `trustedResourceUrlList()`
+  ([e41f01](https://github.com/angular/angular.js/commit/e41f018959934bfbf982ba996cd654b1fce88d43),
+  [#17090](https://github.com/angular/angular.js/issues/17090))
+
+
+<a name="1.8.1"></a>
+# 1.8.1 mutually-supporting (2020-09-30)
+
+## Bug Fixes
+- **$sanitize:** do not trigger CSP alert/report in Firefox and Chrome
+  ([2fab3d](https://github.com/angular/angular.js/commit/2fab3d4e00f4fe35bfa3cf255160cb97404baf24))
+
+## Refactorings
+
+- **SanitizeUriProvider:** remove usages of whitelist
+  ([76738102](https://github.com/angular/angular.js/commit/767381020d88bda2855ac87ca6f00748907e14ff))
+- **httpProvider:** remove usages of whitelist and blacklist
+  ([c953af6b](https://github.com/angular/angular.js/commit/c953af6b8cfeefe4acc0ca358550eed5da8cfe00))
+- **sceDelegateProvider:** remove usages of whitelist and blacklist
+  ([a206e267](https://github.com/angular/angular.js/commit/a206e2675c351c3cdcde3402978126774c1c5df9))
+
+## Deprecation Notices
+
+- Deprecated ~~`$compileProvider.aHrefSanitizationWhitelist`~~.
+  It is now [`aHrefSanitizationTrustedUrlList`](https://docs.angularjs.org/api/ng/provider/$compileProvider#aHrefSanitizationTrustedUrlList).
+- Deprecated ~~`$compileProvider.imgSrcSanitizationWhitelist`~~.
+  It is now [`imgSrcSanitizationTrustedUrlList`](https://docs.angularjs.org/api/ng/provider/$compileProvider#imgSrcSanitizationTrustedUrlList).
+- Deprecated ~~`$httpProvider.xsrfWhitelistedOrigins`~~.
+  It is now [`xsrfTrustedOrigins`](https://docs.angularjs.org/api/ng/provider/$httpProvider#xsrfTrustedOrigins).
+- Deprecated ~~`$sceDelegateProvider.resourceUrlWhitelist`~~.
+  It is now [`trustedResourceUrlList`](https://docs.angularjs.org/api/ng/provider/$sceDelegateProvider#trustedResourceUrlList).
+- Deprecated ~~`$sceDelegateProvider.resourceUrlBlacklist`~~.
+  It is now [`bannedResourceUrlList`](https://docs.angularjs.org/api/ng/provider/$sceDelegateProvider#bannedResourceUrlList).
+
+For the purposes of backward compatibility, the previous symbols are aliased to their new symbol.
+
+
+<a name="1.8.0"></a>
+# 1.8.0 nested-vaccination (2020-06-01)
+
+_This release contains a breaking change to resolve a security issue which was discovered by
+Krzysztof Kotowicz(@koto); and independently by Esben Sparre Andreasen (@esbena) while
+performing a Variant Analysis of [CVE-2020-11022](https://github.com/advisories/GHSA-gxr4-xjj5-5px2)
+which itself was found and reported by Masato Kinugawa (@masatokinugawa)._
+
+## Bug Fixes
+- **jqLite:**
+  - prevent possible XSS due to regex-based HTML replacement
+  ([2df43c](https://github.com/angular/angular.js/commit/2df43c07779137d1bddf7f3b282a1287a8634acd))
+
+## Breaking Changes
+
+### **jqLite** due to:
+  - **[2df43c](https://github.com/angular/angular.js/commit/2df43c07779137d1bddf7f3b282a1287a8634acd)**: prevent possible XSS due to regex-based HTML replacement
+
+JqLite no longer turns XHTML-like strings like `<div /><span />` to sibling elements `<div></div><span></span>`
+when not in XHTML mode. Instead it will leave them as-is. The browser, in non-XHTML mode, will convert these to:
+`<div><span></span></div>`.
+
+This is a security fix to avoid an XSS vulnerability if a new jqLite element is created from a user-controlled HTML string.
+If you must have this functionality and understand the risk involved then it is posible to restore the original behavior by calling
+
+```js
+angular.UNSAFE_restoreLegacyJqLiteXHTMLReplacement();
+```
+
+But you should adjust your code for this change and remove your use of this function as soon as possible.
+
+Note that this only patches jqLite. If you use jQuery 3.5.0 or newer, please read the [jQuery 3.5 upgrade guide](https://jquery.com/upgrade-guide/3.5/) for more details about the workarounds.
+
+
+<a name="1.7.9"></a>
+# 1.7.9 pollution-eradication (2019-11-19)
+
+## Bug Fixes
+- **angular.merge:** do not merge __proto__ property
+  ([726f49](https://github.com/angular/angular.js/commit/726f49dcf6c23106ddaf5cfd5e2e592841db743a))
+  <br>(Thanks to the [Snyk Security Research Team](https://snyk.io/blog/snyk-research-team-discovers-severe-prototype-pollution-security-vulnerabilities-affecting-all-versions-of-lodash/) for identifyng this issue.)
+- **ngStyle:** correctly remove old style when new style value is invalid
+  ([5edd25](https://github.com/angular/angular.js/commit/5edd25364f617083363dc2bd61f9230b38267578),
+  [#16860](https://github.com/angular/angular.js/issues/16860),
+  [#16868](https://github.com/angular/angular.js/issues/16868))
+
+
+<a name="1.7.8"></a>
+# 1.7.8 enthusiastic-oblation (2019-03-11)
+
+
+## Bug Fixes
+- **required:** correctly validate required on non-input element surrounded by ngIf
+  ([a4c7bd](https://github.com/angular/angular.js/commit/a4c7bdccd76c39c30e33f6215da9a00cc8acde2c),
+  [#16830](https://github.com/angular/angular.js/issues/16830),
+  [#16836](https://github.com/angular/angular.js/issues/16836))
+
+
+<a name="1.7.7"></a>
+# 1.7.7 kingly-exiting (2019-02-04)
+
+## Bug Fixes
+- **ngRequired:** set error correctly when inside ngRepeat and false by default
+  ([5ad4f5](https://github.com/angular/angular.js/commit/5ad4f5562c37b1cb575e3e5fddd96e9dd10408e2),
+  [#16814](https://github.com/angular/angular.js/issues/16814),
+  [#16820](https://github.com/angular/angular.js/issues/16820))
+
+
 <a name="1.7.6"></a>
 # 1.7.6 gravity-manipulation (2019-01-17)
 

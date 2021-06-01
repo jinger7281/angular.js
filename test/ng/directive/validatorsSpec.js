@@ -696,6 +696,13 @@ describe('validators', function() {
     }));
 
 
+    it('should override "required" when ng-required="false" is set', function() {
+      var inputElm = helper.compileInput('<input type="text" ng-model="notDefined" required ng-required="false" />');
+
+      expect(inputElm).toBeValid();
+    });
+
+
     it('should validate only once after compilation when inside ngRepeat', function() {
       helper.compileInput(
          '<div ng-repeat="input in [0]">' +
@@ -730,5 +737,30 @@ describe('validators', function() {
 
       expect(helper.validationCounter.required).toBe(1);
     });
+
+
+    it('should validate once when inside ngRepeat, and set the "required" error when ngRequired is false by default', function() {
+      $rootScope.isRequired = false;
+      $rootScope.refs = {};
+
+      var elm = helper.compileInput(
+        '<div ng-repeat="input in [0]">' +
+          '<input type="text" ng-ref="refs.input" ng-ref-read="ngModel" ng-model="value" ng-required="isRequired" validation-spy="required" />' +
+        '</div>');
+
+      expect(helper.validationCounter.required).toBe(1);
+      expect($rootScope.refs.input.$error.required).toBeUndefined();
+    });
+
+
+    it('should validate only once when inside ngIf with required on non-input elements', inject(function($compile) {
+      $rootScope.value = '12';
+      $rootScope.refs = {};
+      helper.compileInput('<div ng-if="true"><span ng-model="value" ng-ref="refs.ctrl" ng-ref-read="ngModel" required validation-spy="required"></span></div>');
+      $rootScope.$digest();
+
+      expect(helper.validationCounter.required).toBe(1);
+      expect($rootScope.refs.ctrl.$error.required).not.toBe(true);
+    }));
   });
 });

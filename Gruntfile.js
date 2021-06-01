@@ -14,7 +14,8 @@ var semver = require('semver');
 var exec = require('shelljs').exec;
 var pkg = require(__dirname + '/package.json');
 
-var docsScriptFolder = 'scripts/docs.angularjs.org-firebase';
+var codeScriptFolder = util.codeScriptFolder;
+var docsScriptFolder = util.docsScriptFolder;
 
 // Node.js version checks
 if (!semver.satisfies(process.version, pkg.engines.node)) {
@@ -45,7 +46,7 @@ if (!match) {
 }
 
 // Ensure Node.js dependencies have been installed
-if (!process.env.TRAVIS && !process.env.JENKINS_HOME) {
+if (!process.env.CI) {
   var yarnOutput = exec('yarn install');
   if (yarnOutput.code !== 0) {
     throw new Error('Yarn install failed: ' + yarnOutput.stderr);
@@ -109,16 +110,14 @@ module.exports = function(grunt) {
       },
       testserver: {
         options: {
-          // We use end2end task (which does not start the webserver)
-          // and start the webserver as a separate process (in travis_build.sh)
-          // to avoid https://github.com/joyent/libuv/issues/826
+          // We start the webserver as a separate process from the E2E tests
           port: 8000,
           hostname: '0.0.0.0',
           middleware: function(connect, options) {
             var base = Array.isArray(options.base) ? options.base[options.base.length - 1] : options.base;
             return [
               function(req, resp, next) {
-                // cache get requests to speed up tests on travis
+                // cache GET requests to speed up tests
                 if (req.method === 'GET') {
                   resp.setHeader('Cache-control', 'public, max-age=3600');
                 }
@@ -160,8 +159,7 @@ module.exports = function(grunt) {
 
     protractor: {
       normal: 'protractor-conf.js',
-      travis: 'protractor-travis-conf.js',
-      jenkins: 'protractor-jenkins-conf.js'
+      circleci: 'protractor-circleci-conf.js'
     },
 
 
@@ -169,9 +167,9 @@ module.exports = function(grunt) {
       build: ['build'],
       tmp: ['tmp'],
       deploy: [
-        'deploy/docs',
-        'deploy/code',
-        docsScriptFolder + '/functions/html'
+        codeScriptFolder + '/deploy',
+        docsScriptFolder + '/deploy',
+        docsScriptFolder + '/functions/content'
       ]
     },
 
@@ -372,11 +370,10 @@ module.exports = function(grunt) {
       },
       deployFirebaseCode: {
         files: [
-          // copy files that are not handled by compress
           {
             cwd: 'build',
-            src: '**/*.{zip,jpg,jpeg,png}',
-            dest: 'deploy/code/' + deployVersion + '/',
+            src: '**',
+            dest: codeScriptFolder + '/deploy/' + deployVersion + '/',
             expand: true
           }
         ]
@@ -386,19 +383,19 @@ module.exports = function(grunt) {
           // The source files are needed by the embedded examples in the docs app.
           {
             src: ['build/angular*.{js,js.map,min.js}', 'build/sitemap.xml'],
-            dest: 'deploy/docs/',
+            dest: docsScriptFolder + '/deploy/',
             expand: true,
             flatten: true
           },
           {
             cwd: 'build/docs',
             src: ['**', '!ptore2e/**', '!index*.html'],
-            dest: 'deploy/docs/',
+            dest: docsScriptFolder + '/deploy/',
             expand: true
           },
           {
             src: 'build/docs/index-production.html',
-            dest: 'deploy/docs/index.html'
+            dest: docsScriptFolder + '/deploy/index.html'
           },
           {
             src: 'build/docs/index-production.html',
@@ -407,7 +404,7 @@ module.exports = function(grunt) {
           {
             cwd: 'build/docs',
             src: 'partials/**',
-            dest: docsScriptFolder + '/functions/content',
+            dest: docsScriptFolder + '/functions/content/',
             expand: true
           }
         ]
@@ -423,16 +420,6 @@ module.exports = function(grunt) {
         expand: true,
         dot: true,
         dest: dist + '/'
-      },
-      deployFirebaseCode: {
-        options: {
-          mode: 'gzip'
-        },
-        // Already compressed files should not be compressed again
-        src: ['**', '!**/*.{zip,png,jpeg,jpg}'],
-        cwd: 'build',
-        expand: true,
-        dest: 'deploy/code/' + deployVersion + '/'
       }
     },
 
@@ -498,14 +485,9 @@ module.exports = function(grunt) {
     'connect:testserver',
     'protractor:normal'
   ]);
-  grunt.registerTask('test:travis-protractor', 'Run the end to end tests with Protractor for Travis CI builds', [
+  grunt.registerTask('test:circleci-protractor', 'Run the end to end tests with Protractor for CircleCI builds', [
     'connect:testserver',
-    'protractor:travis'
-  ]);
-  grunt.registerTask('test:ci-protractor', 'Run the end to end tests with Protractor for Jenkins CI builds', [
-    'webdriver',
-    'connect:testserver',
-    'protractor:jenkins'
+    'protractor:circleci'
   ]);
   grunt.registerTask('test:e2e', 'Alias for test:protractor', ['test:protractor']);
   grunt.registerTask('test:promises-aplus',[
@@ -535,10 +517,7 @@ module.exports = function(grunt) {
     'eslint'
   ]);
   grunt.registerTask('prepareDeploy', [
-    'package',
-    'compress:deployFirebaseCode',
     'copy:deployFirebaseCode',
-    'firebaseDocsJsonForTravis',
     'copy:deployFirebaseDocs'
   ]);
   grunt.registerTask('default', ['package']);
@@ -546,7 +525,7 @@ module.exports = function(grunt) {
 
 
 function reportOrFail(message) {
-  if (process.env.TRAVIS || process.env.JENKINS_HOME) {
+  if (process.env.CI) {
     throw new Error(message);
   } else {
     console.log('===============================================================================');

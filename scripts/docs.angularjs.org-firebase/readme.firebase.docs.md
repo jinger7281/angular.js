@@ -1,23 +1,26 @@
 Firebase for docs.angularjs.org
 ===============================
 
+This folder contains the Google Firebase scripts for the `docs.angularjs.org` setup.
+
+See `/scripts/code.angularjs.org-firebase/readme.firebase.code.md` for the Firebase deployment to `code.angularjs.org`.
+
 # Continuous integration
 
-The docs are deployed to Google Firebase hosting via Travis deployment config, which expects
-firebase.json in the repository root, which is done by a Grunt task (firebaseDocsJsonForTravis)
-that modifies the paths in the firebase.json and copies it into the repository root.
+The docs are deployed to Google Firebase hosting and functions automatically via CI.
 
-See travis.yml for the complete deployment config, and scripts/travis/build.sh for the full deployment
-build steps.
+See `.circleci/config.yml` for the complete deployment config and build steps.
 
 # Serving locally:
 
-- Run `grunt:prepareDeploy`.
-  This copies docs content files into deploy/docs and the partials for Search Engine AJAX
-  Crawling into ./functions/content.
+- Run `cd scripts/docs.angularjs.org-firebase`.
+  This changes the current working directory.
 
-- Run `firebase serve --only functions,hosting`
-  Creates a server at localhost:5000 that serves from deploy/docs and uses the local function
+- Run `yarn grunt package`.
+  This builds the files that will be deployed.
 
-See /scripts/code.angularjs.org-firebase/readme.firebase.code.md for the firebase deployment to
-code.angularjs.org
+- Run `yarn grunt prepareDeploy`.
+  This copies docs content files into `./deploy` and the partials for Search Engine AJAX Crawling into `./functions/content`.
+
+- Run `$(yarn bin)/firebase emulators:start` (or `..\..\node_modules\.bin\firebase emulators:start` on Windows).
+  Creates a server at http://localhost:5000 that serves from `./deploy` and uses the local function.

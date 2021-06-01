@@ -1,16 +1,20 @@
 'use strict';
 
 const functions = require('firebase-functions');
-const gcs = require('@google-cloud/storage')();
-const path = require('path');
+const {Storage} = require('@google-cloud/storage');
 
+const storage = new Storage();
 const gcsBucketId = `${process.env.GCLOUD_PROJECT}.appspot.com`;
 
 const BROWSER_CACHE_DURATION = 60 * 10;
 const CDN_CACHE_DURATION = 60 * 60 * 12;
 
 function sendStoredFile(request, response) {
-  const requestPath = request.path || '/';
+  // Request paths will be URI-encoded, so we need to decode them to match the file names in the
+  // storage bucket. Failing to do so will result in a 404 error from the bucket and `index.html`
+  // will be returned instead.
+  // Example of path requiring decoding: `.../input%5Btext%5D.html` --> `.../input[text].html`
+  const requestPath = decodeURI(request.path || '/');
   let filePathSegments = requestPath.split('/').filter((segment) => {
     // Remove empty leading or trailing path parts
     return segment !== '';
@@ -19,7 +23,7 @@ function sendStoredFile(request, response) {
   const version = filePathSegments[0];
   const isDocsPath = filePathSegments[1] === 'docs';
   const lastSegment = filePathSegments[filePathSegments.length - 1];
-  const bucket = gcs.bucket(gcsBucketId);
+  const bucket = storage.bucket(gcsBucketId);
 
   let downloadSource;
   let fileName;
@@ -36,13 +40,13 @@ function sendStoredFile(request, response) {
     return getDirectoryListing('/').catch(sendErrorResponse);
   }
 
-  downloadSource = path.join.apply(null, filePathSegments);
+  downloadSource = filePathSegments.join('/');
 
   downloadAndSend(downloadSource).catch(error => {
     if (isDocsPath && error.code === 404) {
       fileName = 'index.html';
       filePathSegments = [version, 'docs', fileName];
-      downloadSource = path.join.apply(null, filePathSegments);
+      downloadSource = filePathSegments.join('/');
 
       return downloadAndSend(downloadSource);
     }
@@ -195,12 +199,12 @@ const snapshotRegex = /^snapshot(-stable)?\//;
  * When a new zip file is uploaded into snapshot or snapshot-stable,
  * delete the previous zip file.
  */
-function deleteOldSnapshotZip(object, context) {
+function deleteOldSnapshotZip(object) {
   const bucketId = object.bucket;
   const filePath = object.name;
   const contentType = object.contentType;
 
-  const bucket = gcs.bucket(bucketId);
+  const bucket = storage.bucket(bucketId);
 
   const snapshotFolderMatch = filePath.match(snapshotRegex);
 

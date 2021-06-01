@@ -249,7 +249,7 @@ format that includes a **type**, a **scope** and a **subject**:
 
 The **header** is mandatory and the **scope** of the header is optional.
 
-Any line of the commit message cannot be longer 100 characters! This allows the message to be easier
+Any line of the commit message cannot be longer than 100 characters! This allows the message to be easier
 to read on GitHub as well as in various git tools.
 
 ### Revert
@@ -257,7 +257,6 @@ If the commit reverts a previous commit, it should begin with `revert: `, follow
 of the reverted commit.
 In the body it should say: `This reverts commit <hash>.`, where the hash is the SHA of the commit
 being reverted.
-A commit with this format is automatically created by the [`git revert`][git-revert] command.
 
 ### Type
 Must be one of the following:
@@ -429,7 +428,7 @@ if it is enclosed in &lt;pre&gt;...&lt;/pre&gt; tags and the code lines themselv
 It is possible to embed examples in the documentation along with appropriate e2e tests. These
 examples and scenarios will be converted to runnable code within the documentation.  So it is
 important that they work correctly.  To ensure this, all these e2e scenarios are run as part of the
-automated Travis tests.
+continuous integration tests.
 
 If you are adding an example with an e2e test, you should [run the test locally](#e2e-tests) first
 to ensure it passes. You can change `it(...)` to `fit(...)` to run only your test,

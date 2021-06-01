@@ -25,7 +25,7 @@ function init {
 function prepare {
 
   echo "-- Cloning code.angularjs.org"
-  git clone git@github.com:angular/code.angularjs.org.git $REPO_DIR --depth=1
+  git clone https://github.com/angular/code.angularjs.org $REPO_DIR --depth=1
 
   echo "-- Updating code.angularjs.org"
 
@@ -63,7 +63,7 @@ function _update_code() {
 
 function publish {
   # publish updates the code.angularjs.org Github repository
-  # the deployment to Firebase happens via Travis
+  # the deployment to Firebase happens via CI
   _update_code
 }
 
